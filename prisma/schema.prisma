@@ -1,0 +1,68 @@
+// Homie English — data model (first slice).
+// SQLite now for zero-infra local dev; swap `provider` + DATABASE_URL to
+// "postgresql" for prod. No PostGIS needed here (unlike the Homies repo).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Auth is deferred (incremental rule). A single seeded local user owns all
+// words for now; the FK is already here so multi-user drops in later.
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  words     Word[]
+}
+
+// SRS status lifecycle: New -> Learning -> Reviewing -> Mastered
+// Difficulty: Easy | Medium | Hard  (kept as strings; SQLite has no enums)
+model Word {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // What the user typed (word, phrase, idiom, phrasal verb, term).
+  text        String
+  translation String? // e.g. Ukrainian
+  ipa         String? // /teɪk .../
+  uaHint      String? // Ukrainian pronunciation helper: "тейк ..."
+
+  partOfSpeech String?
+  cefr         String? // A1..C2
+  explanation  String? // original AI-generated, not copied from dictionaries
+  synonyms     String? // JSON array as text (SQLite)
+  antonyms     String? // JSON array as text
+  collocations String? // JSON array as text
+  notes        String? // common mistakes / tips
+
+  status      String   @default("New")
+  difficulty  String   @default("Medium")
+
+  // SRS scheduling
+  reps        Int      @default(0)
+  intervalDays Int     @default(0)
+  dueAt       DateTime @default(now())
+
+  examples    Example[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, text])
+  @@index([userId, dueAt])
+}
+
+model Example {
+  id        String   @id @default(cuid())
+  wordId    String
+  word      Word     @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  en        String
+  translation String?
+  createdAt DateTime @default(now())
+}
