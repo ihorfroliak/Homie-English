@@ -1,6 +1,7 @@
-// Homie English — data model (first slice).
-// SQLite now for zero-infra local dev; swap `provider` + DATABASE_URL to
-// "postgresql" for prod. No PostGIS needed here (unlike the Homies repo).
+// Homie English — data model.
+// SQLite for local dev; swap `provider` + DATABASE_URL to "postgresql" for
+// prod. JSON-shaped fields are stored as TEXT here; on Postgres they become
+// jsonb / text[] with a straightforward migration.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,21 +12,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Auth is deferred (incremental rule). A single seeded local user owns all
-// words for now; the FK is already here so multi-user drops in later.
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
   name          String?
-  passwordHash  String?   // null for the legacy local user / future OAuth
+  passwordHash  String?   // null for future OAuth
   emailVerified DateTime?
   createdAt     DateTime  @default(now())
   words         Word[]
   sessions      Session[]
 }
 
-// Server-side sessions: revocable, unlike a stateless JWT. The cookie holds
-// only the random token; everything else lives here.
+// Server-side sessions: revocable, unlike a stateless JWT.
 model Session {
   id        String   @id @default(cuid())
   userId    String
@@ -37,48 +35,77 @@ model Session {
   @@index([userId])
 }
 
-// SRS status lifecycle: New -> Learning -> Reviewing -> Mastered
-// Difficulty: Easy | Medium | Hard  (kept as strings; SQLite has no enums)
-model Word {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+// Global, deduplicated enrichment. Keyed by the normalized input so a word is
+// enriched by the AI exactly once and reused across every user (req #8).
+// Designed to scale to millions of rows: single unique lookup on `key`.
+model Lexeme {
+  id   String @id @default(cuid())
+  key  String @unique // normalized text (lowercase, collapsed spaces)
+  text String // original display form
 
-  // What the user typed (word, phrase, idiom, phrasal verb, term).
-  text        String
-  translation String? // e.g. Ukrainian
-  ipa         String? // /teɪk .../
-  uaHint      String? // Ukrainian pronunciation helper: "тейк ..."
-
+  lemma        String?
   partOfSpeech String?
   cefr         String? // A1..C2
-  explanation  String? // original AI-generated, not copied from dictionaries
-  synonyms     String? // JSON array as text (SQLite)
-  antonyms     String? // JSON array as text
-  collocations String? // JSON array as text
-  notes        String? // common mistakes / tips
+  ipaUk        String?
+  ipaUs        String?
 
-  status      String   @default("New")
-  difficulty  String   @default("Medium")
+  translation     String? // natural Ukrainian
+  altTranslations String? // JSON string[]
+  explanation     String? // simple English, original
 
-  // SRS scheduling
-  reps        Int      @default(0)
-  intervalDays Int     @default(0)
-  dueAt       DateTime @default(now())
+  collocations   String? // JSON string[]
+  commonMistakes String? // JSON string[]
+  synonyms       String? // JSON string[]
+  antonyms       String? // JSON string[]
+  tags           String? // JSON string[]
 
-  examples    Example[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  irregularForms String? // free note, when applicable
+  plural         String? // when applicable
+  verbForms      String? // JSON object, when applicable
 
-  @@unique([userId, text])
-  @@index([userId, dueAt])
+  pronunciationTips String?
+  mnemonic          String?
+
+  // Provenance for logging / audit.
+  source String @default("stub") // "anthropic" | "openai" | ... | "stub"
+  model  String?
+
+  examples  Example[]
+  words     Word[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model Example {
-  id        String   @id @default(cuid())
-  wordId    String
-  word      Word     @relation(fields: [wordId], references: [id], onDelete: Cascade)
-  en        String
+  id          String @id @default(cuid())
+  lexemeId    String
+  lexeme      Lexeme @relation(fields: [lexemeId], references: [id], onDelete: Cascade)
+  en          String
   translation String?
+
+  @@index([lexemeId])
+}
+
+// Per-user learning state. References the shared Lexeme; only progress and
+// scheduling live here (SRS status lifecycle: New -> Learning -> Reviewing ->
+// Mastered).
+model Word {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lexemeId String
+  lexeme   Lexeme @relation(fields: [lexemeId], references: [id], onDelete: Restrict)
+
+  status     String @default("New")
+  difficulty String @default("Medium")
+
+  reps         Int      @default(0)
+  intervalDays Int      @default(0)
+  dueAt        DateTime @default(now())
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, lexemeId])
+  @@index([userId, dueAt])
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { nextSchedule } from "@/lib/srs";
+import { toWordDTO } from "@/lib/dto";
 
 const Body = z.object({ grade: z.enum(["again", "good"]) });
 
@@ -11,16 +12,16 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id } = await params;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "grade must be again|good" }, { status: 400 });
   }
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const userId = user.id;
 
-  const word = await prisma.word.findFirst({ where: { id, userId } });
+  const word = await prisma.word.findFirst({ where: { id, userId: user.id } });
   if (!word) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const s = nextSchedule(word.reps, parsed.data.grade);
@@ -32,8 +33,8 @@ export async function POST(
       dueAt: s.dueAt,
       status: s.status,
     },
-    include: { examples: true },
+    include: { lexeme: { include: { examples: true } } },
   });
 
-  return NextResponse.json({ word: updated });
+  return NextResponse.json({ word: toWordDTO(updated) });
 }

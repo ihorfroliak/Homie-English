@@ -2,42 +2,18 @@
 
 import { useEffect, useState } from "react";
 import AuthForm from "@/components/AuthForm";
-import Pronounce from "@/components/Pronounce";
+import WordCard from "@/components/WordCard";
+import type { WordDTO } from "@/lib/dto";
 
-type Example = { id: string; en: string; translation: string | null };
-type Word = {
-  id: string;
-  text: string;
-  translation: string | null;
-  ipa: string | null;
-  uaHint: string | null;
-  partOfSpeech: string | null;
-  cefr: string | null;
-  explanation: string | null;
-  synonyms: string | null;
-  antonyms: string | null;
-  collocations: string | null;
-  notes: string | null;
-  status: string;
-  difficulty: string;
-  examples: Example[];
-};
 type User = { id: string; email: string; name: string | null };
-
-const statusColor: Record<string, string> = {
-  New: "#78716c",
-  Learning: "#d97706",
-  Reviewing: "#2563eb",
-  Mastered: "#16a34a",
-};
+type Pending = { tempId: string; text: string; error: string | null };
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
-  const [words, setWords] = useState<Word[]>([]);
+  const [words, setWords] = useState<WordDTO[]>([]);
+  const [pending, setPending] = useState<Pending[]>([]);
   const [text, setText] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -48,10 +24,7 @@ export default function Home() {
 
   async function load() {
     const res = await fetch("/api/words");
-    if (res.status === 401) {
-      setUser(null);
-      return;
-    }
+    if (res.status === 401) return setUser(null);
     const data = await res.json();
     setWords(data.words ?? []);
   }
@@ -61,37 +34,59 @@ export default function Home() {
     else setWords([]);
   }, [user]);
 
-  async function addWord(e: React.FormEvent) {
-    e.preventDefault();
-    const t = text.trim();
-    if (!t) return;
-    setLoading(true);
-    setError(null);
+  // Optimistic: show a pending card immediately, resolve on the API response.
+  async function enrichAndAdd(tempId: string, wordText: string) {
+    setPending((p) =>
+      p.map((x) => (x.tempId === tempId ? { ...x, error: null } : x))
+    );
     try {
       const res = await fetch("/api/words", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: t }),
+        body: JSON.stringify({ text: wordText }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        setError(d.error ?? "Failed to add word");
+        setPending((p) =>
+          p.map((x) =>
+            x.tempId === tempId
+              ? { ...x, error: data.error ?? "Failed to add" }
+              : x
+          )
+        );
         return;
       }
-      setText("");
-      await load();
-    } finally {
-      setLoading(false);
+      setPending((p) => p.filter((x) => x.tempId !== tempId));
+      setWords((w) => [data.word as WordDTO, ...w]);
+    } catch {
+      setPending((p) =>
+        p.map((x) =>
+          x.tempId === tempId ? { ...x, error: "Network error" } : x
+        )
+      );
     }
   }
 
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const t = text.trim();
+    if (!t) return;
+    const tempId = `tmp_${Date.now()}`;
+    setPending((p) => [{ tempId, text: t, error: null }, ...p]);
+    setText("");
+    enrichAndAdd(tempId, t);
+  }
+
   async function review(id: string, grade: "again" | "good") {
-    await fetch(`/api/words/${id}/review`, {
+    const res = await fetch(`/api/words/${id}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ grade }),
     });
-    await load();
+    if (res.ok) {
+      const data = await res.json();
+      setWords((w) => w.map((x) => (x.id === id ? (data.word as WordDTO) : x)));
+    }
   }
 
   async function logout() {
@@ -132,7 +127,7 @@ export default function Home() {
         </div>
       </header>
 
-      <form onSubmit={addWord} className="mb-3 flex gap-2">
+      <form onSubmit={submit} className="mb-4 flex gap-2">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -142,92 +137,58 @@ export default function Home() {
         />
         <button
           type="submit"
-          disabled={loading}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded-lg px-4 py-2 text-sm font-medium text-white"
           style={{ background: "var(--accent)" }}
         >
-          {loading ? "Adding…" : "Add"}
+          Add
         </button>
       </form>
-      {error && (
-        <p className="mb-4 text-sm" style={{ color: "#dc2626" }}>
-          {error}
-        </p>
-      )}
 
       <div className="mb-4 text-xs" style={{ color: "var(--muted)" }}>
         {words.length} word{words.length === 1 ? "" : "s"} in your dictionary
       </div>
 
       <ul className="space-y-3">
-        {words.map((w) => (
-          <li key={w.id} className="rounded-xl border p-4" style={card}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-medium">{w.text}</span>
-                  {w.ipa && (
-                    <span className="text-sm" style={{ color: "var(--muted)" }}>
-                      {w.ipa}
-                    </span>
-                  )}
-                </div>
-                {w.translation && (
-                  <div className="text-sm" style={{ color: "var(--muted)" }}>
-                    {w.translation}
-                    {w.uaHint ? ` · ${w.uaHint}` : ""}
-                  </div>
-                )}
+        {pending.map((p) => (
+          <li key={p.tempId} className="rounded-xl border p-4" style={card}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-lg font-medium">{p.text}</span>
+              {!p.error && (
+                <span className="text-xs" style={{ color: "var(--muted)" }}>
+                  Enriching with AI…
+                </span>
+              )}
+            </div>
+            {p.error ? (
+              <div className="mt-2 flex items-center gap-3">
+                <span className="text-sm" style={{ color: "#dc2626" }}>
+                  {p.error}
+                </span>
+                <button
+                  onClick={() => enrichAndAdd(p.tempId, p.text)}
+                  className="rounded-md border px-3 py-1 text-xs"
+                  style={card}
+                >
+                  Retry
+                </button>
+                <button
+                  onClick={() =>
+                    setPending((list) => list.filter((x) => x.tempId !== p.tempId))
+                  }
+                  className="text-xs underline"
+                  style={{ color: "var(--muted)" }}
+                >
+                  Dismiss
+                </button>
               </div>
-              <span
-                className="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium text-white"
-                style={{ background: statusColor[w.status] ?? "#78716c" }}
-              >
-                {w.status}
-              </span>
-            </div>
-
-            <div className="mt-2">
-              <Pronounce text={w.text} />
-            </div>
-
-            {(w.partOfSpeech || w.cefr) && (
-              <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
-                {[w.partOfSpeech, w.cefr].filter(Boolean).join(" · ")}
-              </div>
+            ) : (
+              <div className="mt-3 he-progress-track" />
             )}
-            {w.explanation && <p className="mt-2 text-sm">{w.explanation}</p>}
-
-            {w.examples.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {w.examples.map((ex) => (
-                  <li key={ex.id} className="text-sm">
-                    <span>“{ex.en}”</span>
-                    {ex.translation && (
-                      <span style={{ color: "var(--muted)" }}> — {ex.translation}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => review(w.id, "again")}
-                className="rounded-md border px-3 py-1 text-xs"
-                style={card}
-              >
-                Again
-              </button>
-              <button
-                onClick={() => review(w.id, "good")}
-                className="rounded-md border px-3 py-1 text-xs"
-                style={card}
-              >
-                Good
-              </button>
-            </div>
           </li>
+        ))}
+
+        {words.map((w) => (
+          <WordCard key={w.id} word={w} onReview={review} />
         ))}
       </ul>
     </main>

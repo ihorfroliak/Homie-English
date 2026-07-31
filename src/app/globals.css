@@ -27,3 +27,25 @@ body {
   background: var(--bg);
   color: var(--fg);
 }
+
+/* Indeterminate progress bar for AI enrichment. */
+@keyframes he-progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.he-progress-track {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+.he-progress-track::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 33%;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: he-progress 1.1s ease-in-out infinite;
+}
