@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AuthForm from "@/components/AuthForm";
+import Pronounce from "@/components/Pronounce";
 
 type Example = { id: string; en: string; translation: string | null };
 type Word = {
@@ -20,6 +22,7 @@ type Word = {
   difficulty: string;
   examples: Example[];
 };
+type User = { id: string; email: string; name: string | null };
 
 const statusColor: Record<string, string> = {
   New: "#78716c",
@@ -29,20 +32,34 @@ const statusColor: Record<string, string> = {
 };
 
 export default function Home() {
+  const [user, setUser] = useState<User | null>(null);
+  const [ready, setReady] = useState(false);
   const [words, setWords] = useState<Word[]>([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => setUser(d.user ?? null))
+      .finally(() => setReady(true));
+  }, []);
+
   async function load() {
     const res = await fetch("/api/words");
+    if (res.status === 401) {
+      setUser(null);
+      return;
+    }
     const data = await res.json();
     setWords(data.words ?? []);
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    if (user) load();
+    else setWords([]);
+  }, [user]);
 
   async function addWord(e: React.FormEvent) {
     e.preventDefault();
@@ -77,18 +94,42 @@ export default function Home() {
     await load();
   }
 
-  const card = {
-    background: "var(--card)",
-    borderColor: "var(--border)",
-  } as const;
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setUser(null);
+  }
+
+  const card = { background: "var(--card)", borderColor: "var(--border)" } as const;
+
+  if (!ready) return null;
+  if (!user)
+    return (
+      <main className="px-5">
+        <AuthForm onAuth={setUser} />
+      </main>
+    );
 
   return (
     <main className="mx-auto max-w-2xl px-5 py-12">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Homie English</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-          Add a word or phrase — AI enriches it, you remember it.
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Homie English</h1>
+          <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+            Add a word or phrase — AI enriches it, you remember it.
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-xs" style={{ color: "var(--muted)" }}>
+            {user.email}
+          </div>
+          <button
+            onClick={logout}
+            className="mt-1 rounded-md border px-2 py-1 text-xs"
+            style={card}
+          >
+            Log out
+          </button>
+        </div>
       </header>
 
       <form onSubmit={addWord} className="mb-3 flex gap-2">
@@ -146,8 +187,12 @@ export default function Home() {
               </span>
             </div>
 
+            <div className="mt-2">
+              <Pronounce text={w.text} />
+            </div>
+
             {(w.partOfSpeech || w.cefr) && (
-              <div className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
+              <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
                 {[w.partOfSpeech, w.cefr].filter(Boolean).join(" · ")}
               </div>
             )}

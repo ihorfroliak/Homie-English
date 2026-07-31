@@ -14,11 +14,27 @@ datasource db {
 // Auth is deferred (incremental rule). A single seeded local user owns all
 // words for now; the FK is already here so multi-user drops in later.
 model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?   // null for the legacy local user / future OAuth
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  words         Word[]
+  sessions      Session[]
+}
+
+// Server-side sessions: revocable, unlike a stateless JWT. The cookie holds
+// only the random token; everything else lives here.
+model Session {
   id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
   createdAt DateTime @default(now())
-  words     Word[]
+
+  @@index([userId])
 }
 
 // SRS status lifecycle: New -> Learning -> Reviewing -> Mastered

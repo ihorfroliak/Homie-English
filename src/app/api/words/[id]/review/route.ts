@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, getLocalUserId } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 import { nextSchedule } from "@/lib/srs";
 
 const Body = z.object({ grade: z.enum(["again", "good"]) });
@@ -15,7 +16,9 @@ export async function POST(
   if (!parsed.success) {
     return NextResponse.json({ error: "grade must be again|good" }, { status: 400 });
   }
-  const userId = await getLocalUserId();
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = user.id;
 
   const word = await prisma.word.findFirst({ where: { id, userId } });
   if (!word) return NextResponse.json({ error: "not found" }, { status: 404 });

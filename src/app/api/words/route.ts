@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, getLocalUserId } from "@/lib/db";
+import { prisma } from "@/lib/db";
+import { getSessionUser } from "@/lib/auth";
 import { enrichWord } from "@/lib/ai";
 
 const CreateBody = z.object({ text: z.string().trim().min(1).max(200) });
 
 // GET /api/words — the personal dictionary, newest first.
 export async function GET() {
-  const userId = await getLocalUserId();
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = user.id;
   const words = await prisma.word.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
@@ -23,7 +26,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "text is required" }, { status: 400 });
   }
   const text = parsed.data.text;
-  const userId = await getLocalUserId();
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = user.id;
 
   const existing = await prisma.word.findUnique({
     where: { userId_text: { userId, text } },
