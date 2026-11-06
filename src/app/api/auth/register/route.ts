@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { hashPassword, createSession } from "@/lib/auth";
+import { clientIp, hit, tooManyRequests } from "@/lib/ratelimit";
 
 const Body = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -10,6 +11,9 @@ const Body = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const limit = hit(`register:ip:${clientIp(req)}`, 10, 60 * 60_000);
+  if (!limit.ok) return tooManyRequests(limit.retryAfterSec);
+
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json(

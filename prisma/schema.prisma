@@ -21,6 +21,7 @@ model User {
   createdAt     DateTime  @default(now())
   words         Word[]
   sessions      Session[]
+  reviewLogs    ReviewLog[]
 }
 
 // Server-side sessions: revocable, unlike a stateless JWT.
@@ -106,6 +107,22 @@ model Word {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  reviewLogs ReviewLog[]
+
   @@unique([userId, lexemeId])
   @@index([userId, dueAt])
+}
+
+// Append-only review history. Cannot be backfilled, so it is recorded from day
+// one for streaks and analytics. Survives deleting the word.
+model ReviewLog {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wordId     String?
+  word       Word?    @relation(fields: [wordId], references: [id], onDelete: SetNull)
+  grade      String // "again" | "good"
+  reviewedAt DateTime @default(now())
+
+  @@index([userId, reviewedAt])
 }

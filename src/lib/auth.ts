@@ -34,6 +34,23 @@ export async function verifyPassword(
   return dk.length === expected.length && timingSafeEqual(dk, expected);
 }
 
+let dummyHash: Promise<string> | undefined;
+
+/**
+ * verifyPassword that does the same scrypt work when there is no stored hash
+ * (unknown email, OAuth-only user) and then fails, so login timing doesn't
+ * reveal which emails are registered.
+ */
+export async function verifyPasswordOrDummy(
+  password: string,
+  stored: string | null
+): Promise<boolean> {
+  if (stored) return verifyPassword(password, stored);
+  dummyHash ??= hashPassword(randomBytes(16).toString("hex"));
+  await verifyPassword(password, await dummyHash);
+  return false;
+}
+
 // --- sessions ---------------------------------------------------------------
 
 export async function createSession(userId: string): Promise<void> {

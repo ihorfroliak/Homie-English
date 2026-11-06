@@ -22,16 +22,22 @@ export function createAnthropicProvider(apiKey: string): EnrichmentProvider {
     name: "anthropic",
     model: MODEL,
     async enrich(text: string, signal: AbortSignal): Promise<Enrichment> {
+      // No sampling params: current models reject `temperature` with a 400.
+      // max_tokens leaves room for adaptive thinking, which is on by default
+      // and counts against it.
       const msg = await client.messages.create(
         {
           model: MODEL,
-          max_tokens: 2048,
-          temperature: 0.4,
+          max_tokens: 16000,
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: userPrompt(text) }],
         },
         { signal }
       );
+
+      if (msg.stop_reason === "refusal" || msg.stop_reason === "max_tokens") {
+        throw new Error(`no usable output: stop_reason=${msg.stop_reason}`);
+      }
 
       const block = msg.content.find((b) => b.type === "text");
       const raw = block && "text" in block ? block.text : "";

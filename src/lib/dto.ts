@@ -51,6 +51,7 @@ export function toWordDTO(w: WordWithLexeme) {
     verbForms: obj(lx.verbForms),
     pronunciationTips: lx.pronunciationTips,
     mnemonic: lx.mnemonic,
+    placeholder: lx.source === "stub", // no real AI enrichment yet
     status: w.status,
     difficulty: w.difficulty,
     reps: w.reps,

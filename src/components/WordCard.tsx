@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Pronounce from "@/components/Pronounce";
+import WordDetails from "@/components/WordDetails";
 import type { WordDTO } from "@/lib/dto";
 
 const statusColor: Record<string, string> = {
@@ -10,139 +12,116 @@ const statusColor: Record<string, string> = {
   Mastered: "#16a34a",
 };
 
-function Chips({ label, items }: { label: string; items: string[] }) {
-  if (!items.length) return null;
-  return (
-    <div className="mt-2 text-sm">
-      <span style={{ color: "var(--muted)" }}>{label}: </span>
-      {items.join(", ")}
-    </div>
-  );
+function dueLabel(dueAt: WordDTO["dueAt"]): string {
+  const days = Math.ceil((new Date(dueAt).getTime() - Date.now()) / 864e5);
+  if (days <= 0) return "Due now";
+  return days === 1 ? "Due tomorrow" : `Due in ${days} days`;
 }
 
 export default function WordCard({
   word: w,
-  onReview,
+  onDelete,
+  onEnrich,
 }: {
   word: WordDTO;
-  onReview: (id: string, grade: "again" | "good") => void;
+  onDelete: (id: string) => Promise<void>;
+  onEnrich: (id: string) => Promise<string | null>; // error message or null
 }) {
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+
   const card = { background: "var(--card)", borderColor: "var(--border)" } as const;
-  const meta = [w.partOfSpeech, w.cefr, w.lemma !== w.text ? w.lemma : null]
-    .filter(Boolean)
-    .join(" · ");
+  const muted = { color: "var(--muted)" } as const;
+
+  async function enrich() {
+    setEnriching(true);
+    setEnrichError(null);
+    setEnrichError(await onEnrich(w.id));
+    setEnriching(false);
+  }
 
   return (
-    <li className="rounded-xl border p-4" style={card}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-lg font-medium">{w.text}</span>
-            {w.ipaUk && (
-              <span className="text-sm" style={{ color: "var(--muted)" }}>
-                UK {w.ipaUk}
+    <li className="rounded-xl border" style={card}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-start justify-between gap-3 p-4 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block text-lg font-medium">{w.text}</span>
+          <span className="block truncate text-sm" style={muted}>
+            {w.placeholder
+              ? "No AI translation yet"
+              : [w.translation, ...w.altTranslations].filter(Boolean).join(", ")}
+          </span>
+        </span>
+        <span className="flex shrink-0 flex-col items-end gap-1">
+          <span
+            className="rounded-full px-2 py-0.5 text-xs font-medium text-white"
+            style={{ background: statusColor[w.status] ?? "#78716c" }}
+          >
+            {w.status}
+          </span>
+          <span className="text-xs" style={muted}>
+            {dueLabel(w.dueAt)}
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4">
+          {w.placeholder ? (
+            <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+              <span style={muted}>
+                {enrichError ?? "AI was unavailable when this word was added."}
               </span>
-            )}
-            {w.ipaUs && (
-              <span className="text-sm" style={{ color: "var(--muted)" }}>
-                US {w.ipaUs}
+              <button
+                onClick={enrich}
+                disabled={enriching}
+                className="rounded-md border px-3 py-1 text-xs disabled:opacity-50"
+                style={card}
+              >
+                {enriching ? "Enriching…" : "Enrich with AI"}
+              </button>
+            </div>
+          ) : (
+            <WordDetails word={w} />
+          )}
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <Pronounce text={w.text} />
+            {confirming ? (
+              <span className="flex items-center gap-2 text-xs">
+                <span style={muted}>Delete progress too?</span>
+                <button
+                  onClick={() => onDelete(w.id)}
+                  className="rounded-md px-3 py-1 font-medium text-white"
+                  style={{ background: "#dc2626" }}
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="rounded-md border px-3 py-1"
+                  style={card}
+                >
+                  Cancel
+                </button>
               </span>
+            ) : (
+              <button
+                onClick={() => setConfirming(true)}
+                className="text-xs underline"
+                style={muted}
+              >
+                Delete
+              </button>
             )}
           </div>
-          {w.translation && (
-            <div className="text-sm" style={{ color: "var(--muted)" }}>
-              {w.translation}
-              {w.altTranslations.length > 0 &&
-                ` · ${w.altTranslations.join(", ")}`}
-            </div>
-          )}
-        </div>
-        <span
-          className="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium text-white"
-          style={{ background: statusColor[w.status] ?? "#78716c" }}
-        >
-          {w.status}
-        </span>
-      </div>
-
-      <div className="mt-2">
-        <Pronounce text={w.text} />
-      </div>
-
-      {meta && (
-        <div className="mt-2 text-xs" style={{ color: "var(--muted)" }}>
-          {meta}
         </div>
       )}
-      {w.explanation && <p className="mt-2 text-sm">{w.explanation}</p>}
-
-      {w.examples.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {w.examples.map((ex) => (
-            <li key={ex.id} className="text-sm">
-              <span>“{ex.en}”</span>
-              {ex.translation && (
-                <span style={{ color: "var(--muted)" }}> — {ex.translation}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <Chips label="Collocations" items={w.collocations} />
-      <Chips label="Synonyms" items={w.synonyms} />
-      <Chips label="Antonyms" items={w.antonyms} />
-      <Chips label="Common mistakes" items={w.commonMistakes} />
-
-      {(w.plural || w.irregularForms) && (
-        <div className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-          {[w.plural && `Plural: ${w.plural}`, w.irregularForms]
-            .filter(Boolean)
-            .join(" · ")}
-        </div>
-      )}
-
-      {w.pronunciationTips && (
-        <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-          🗣 {w.pronunciationTips}
-        </p>
-      )}
-      {w.mnemonic && (
-        <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-          💡 {w.mnemonic}
-        </p>
-      )}
-
-      {w.tags.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {w.tags.map((t) => (
-            <span
-              key={t}
-              className="rounded-full border px-2 py-0.5 text-xs"
-              style={card}
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="mt-3 flex gap-2">
-        <button
-          onClick={() => onReview(w.id, "again")}
-          className="rounded-md border px-3 py-1 text-xs"
-          style={card}
-        >
-          Again
-        </button>
-        <button
-          onClick={() => onReview(w.id, "good")}
-          className="rounded-md border px-3 py-1 text-xs"
-          style={card}
-        >
-          Good
-        </button>
-      </div>
     </li>
   );
 }

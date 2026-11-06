@@ -35,18 +35,21 @@ npm test                  # run the test suite
 | `AI_PROVIDER` | `anthropic` | Active provider: `anthropic` \| `stub`. |
 | `ANTHROPIC_API_KEY` | _(empty)_ | Claude key. Empty ⇒ stub fallback. Server-side only. |
 | `ANTHROPIC_MODEL` | `claude-sonnet-5` | Model id. |
-| `AI_TIMEOUT_MS` | `30000` | Timeout per provider attempt. |
+| `AI_TIMEOUT_MS` | `60000` | Timeout per provider attempt. |
 | `AI_MAX_RPM` | `60` | In-process rate-limit guard (calls/min). |
 
 ## Architecture
 
 ```
-UI (page.tsx, WordCard, Pronounce, AuthForm)  — optimistic add, progress, retry
+UI (page.tsx, WordCard, WordDetails, ReviewSession, Pronounce, AuthForm)
         │  fetch
 API routes (src/app/api)
   auth/*            register · login · logout · me   (scrypt + DB sessions)
   words             GET list · POST add
-  words/[id]/review SRS review
+  words/[id]        DELETE
+  words/[id]/enrich retry AI for a placeholder
+  words/[id]/review SRS review (due words only)
+  review            GET due queue
         │
 Services
   enrichment.ts     getOrCreateLexeme — global dedupe + persistence
@@ -54,6 +57,7 @@ Services
         │
 Data (Prisma)
   User · Session · Lexeme (global enrichment) · Example · Word (per-user progress)
+  ReviewLog (append-only review history)
 ```
 
 **Global reuse.** Enrichment is expensive, so it is generated **once per word**
@@ -88,8 +92,8 @@ Enrichment **never throws**. In order:
 1. Provider attempt.
 2. On timeout / network error / **invalid output**, retry **once**.
 3. Still failing → deterministic **stub** (schema-valid placeholder). The word
-   is still added; the user can re-add later to re-enrich once the AI is
-   available.
+   is still added and marked as a placeholder. It is upgraded in place by the
+   card's **Enrich with AI** button, or the next time anyone adds that word.
 
 No provider configured (`ANTHROPIC_API_KEY` empty) or rate limit hit ⇒ stub
 directly, no wasted attempt.
@@ -98,8 +102,9 @@ directly, no wasted attempt.
 
 `npm test` (Vitest): validation schema, stub provider, JSON extraction,
 provider registry, orchestrator retry/fallback, SRS scheduling, DTO mapping,
-enrichment dedupe (cache hit skips the AI), and the `GET /api/words` route
-(401 gate + DTO shaping).
+enrichment dedupe (cache hit skips the AI) and stub upgrades, rate limiting,
+login (timing parity, per-account limit), and the words/review routes (401 gate,
+owner scoping, due-only reviews, DTO shaping).
 
 ## Copyright policy
 
@@ -109,8 +114,11 @@ definitions or example sentences from copyrighted dictionaries.
 ## Implemented so far
 
 Auth (email/password, scrypt, DB sessions) · personal dictionary · SRS
-(Day 1·3·7·14·30) · Web Speech pronunciation (US/UK, speed) · production AI
-enrichment pipeline with global dedupe.
+(Day 1·3·7·14·30) · review sessions (active recall, keyboard: Space/1/2) ·
+search, filter and delete · Web Speech pronunciation (US/UK, speed) · production
+AI enrichment pipeline with global dedupe · rate limits on auth and AI adds
+(in-process; needs a shared store when running more than one instance).
 
 **Deferred:** email verification + password reset, AI agents (Teacher /
-Pronunciation / Vocabulary / Writing), dashboard, search, import, mobile.
+Pronunciation / Vocabulary / Writing), streaks and dashboard (`ReviewLog` already
+records the history), pagination, import, mobile.

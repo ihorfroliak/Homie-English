@@ -7,7 +7,7 @@ import { tryAcquire } from "./ratelimit";
 export type { Enrichment } from "./schema";
 export { normalizeKey } from "./schema";
 
-const TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS ?? 30_000);
+const TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS ?? 60_000);
 
 export type EnrichResult = {
   enrichment: Enrichment;

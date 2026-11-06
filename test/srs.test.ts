@@ -2,11 +2,15 @@ import { describe, it, expect } from "vitest";
 import { nextSchedule } from "@/lib/srs";
 
 describe("nextSchedule", () => {
-  it("advances through the schedule on 'good'", () => {
-    expect(nextSchedule(0, "good").intervalDays).toBe(3); // reps 0 -> 1
-    expect(nextSchedule(1, "good").intervalDays).toBe(7);
-    expect(nextSchedule(2, "good").intervalDays).toBe(14);
-    expect(nextSchedule(3, "good").intervalDays).toBe(30);
+  it("follows the spec schedule Day 1, 3, 7, 14, 30 on 'good'", () => {
+    const intervals = [0, 1, 2, 3, 4].map(
+      (reps) => nextSchedule(reps, "good").intervalDays
+    );
+    expect(intervals).toEqual([1, 3, 7, 14, 30]);
+  });
+
+  it("stays at the last step after the schedule ends", () => {
+    expect(nextSchedule(9, "good").intervalDays).toBe(30);
   });
 
   it("resets to the first step on 'again'", () => {
@@ -16,7 +20,10 @@ describe("nextSchedule", () => {
     expect(s.status).toBe("Learning");
   });
 
-  it("marks Mastered once past the schedule", () => {
+  it("derives status from progress", () => {
+    expect(nextSchedule(0, "good").status).toBe("Learning");
+    expect(nextSchedule(1, "good").status).toBe("Reviewing");
+    expect(nextSchedule(3, "good").status).toBe("Reviewing");
     expect(nextSchedule(4, "good").status).toBe("Mastered");
   });
 
